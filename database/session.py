@@ -6,6 +6,9 @@ import asyncpg
 from pgvector.asyncpg import register_vector
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from config.settings import settings
+from config.logging import get_logger
+
+logger = get_logger(__name__)
 
 class DatabaseSession:
     """
@@ -19,7 +22,7 @@ class DatabaseSession:
     
     async def create_pool(self):
         """创建异步引擎和会话工厂"""
-        print("Initializing database pool...")
+        logger.info("Initializing database pool...")
         DATABASE_URL = (
             f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
             f"@{settings.PG_HOST}:{settings.PG_PORT}/{settings.POSTGRES_DB}"
@@ -55,7 +58,7 @@ class DatabaseSession:
         """关闭引擎"""
         if self.engine:
             await self.engine.dispose()
-            print("数据库引擎已关闭")
+            logger.info("数据库引擎已关闭")
 
 
 # 全局实例

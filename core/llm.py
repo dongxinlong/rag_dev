@@ -85,7 +85,7 @@ class LLMAPIService:
                 timeout=settings.LLM_TIMEOUT
             )
             if getattr(response, "usage") and response.usage:
-                print("USAGE: ", response.usage)
+                logger.debug(f"USAGE: {response.usage}")
                 usage = response.usage
                 input_token = usage.prompt_tokens              # ✅ 输入 token
                 cache_input_token = usage.prompt_tokens_details.cached_tokens or 0  # ✅ 缓存命中
@@ -132,7 +132,7 @@ class LLMAPIService:
                         # 计算成本
                         calculator = CalculateCostFactoriesService(mode=str(self.mode).split("-")[0])
                         cost = calculator.calculate_cost(input_token, cache_input_token, completion_tokens)
-                        print("cost: ", cost)
+                        logger.debug(f"cost: {cost}")
                     if chunk.choices:
                         content = chunk.choices[0].delta.content
                         if content:

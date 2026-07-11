@@ -284,8 +284,8 @@ class RAGService:
                 "model": self.llm_api_service.mode
             }
             msg_instance = await self._save_llm_answer(chat_id, msg_data)
-            print(f"_save_llm_answer 返回: {msg_instance}")
-            print(f"类型: {type(msg_instance)}")
+            logger.debug(f"_save_llm_answer 返回: {msg_instance}")
+            logger.debug(f"类型: {type(msg_instance)}")
 
             msg_id = msg_instance.id
             data = json.dumps({
@@ -311,7 +311,7 @@ class RAGService:
             # 提取 cost 数值（cost_data 是字典 {"cost": 0.0015, "meta": {...}}）
             cost_value = cost_data.get("cost", 0) if isinstance(cost_data, dict) else cost_data
             meta = cost_data.get("meta", {}) if isinstance(cost_data, dict) else {}
-            print("meta: ", meta)
+            logger.debug(f"meta: {meta}")
             # 提取token
             tokens_prompt = meta.get("input_token", 0)
             tokens_completion = meta.get("completion_tokens", 0)
@@ -328,7 +328,7 @@ class RAGService:
             })
             yield f"data: {data}\n\n"
         except Exception as e:
-            print("msg_id: ", msg_id)
+            logger.error(f"rag_query_stream 失败: {e}, msg_id: {msg_id}")
             if msg_id:
                 # 更新msg信息：status
                 await self.messages_service.updateMessagesStatus(msg_id, status="failed")

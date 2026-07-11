@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from api.middleware import cors, logging
 from api.middleware.rate_limiter import RateLimitMiddleware
 from config.settings import settings
-from config.logging import setup_logging
+from config.logging import setup_logging, get_logger
 from database.session import db_session
 from routers.rag import rag_router
 from routers.chat import chat_router
@@ -13,18 +13,20 @@ from routers.knowledgebase import router as knowledge_router
 from routers.user import router as user_router
 from routers.messages import messages_router
 
+logger = get_logger(__name__)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 启动时执行
     setup_logging()
-    print(f"服务启动：{settings.HOST}:{settings.PORT}")
-    print(f"调试模式：{settings.DEBUG}")
+    logger.info(f"服务启动：{settings.HOST}:{settings.PORT}")
+    logger.info(f"调试模式：{settings.DEBUG}")
     # 初始化数据库连接
     await db_session.create_pool()
     # 初始化服务
     yield
     # 关闭时执行
-    print("服务关闭中...")
+    logger.info("服务关闭中...")
     await db_session.close()
     # 关闭数据库连接
 
