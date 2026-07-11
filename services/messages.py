@@ -2,7 +2,7 @@
 Messages 相关接口
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select
+from sqlalchemy import func, select, not_
 from typing import Union
 
 from models.rag import Messages
@@ -16,11 +16,11 @@ class MessagesService:
     def __init__(self, session: AsyncSession):
         self.db = session
 
-
     async def createMessages(self, **body: MessagesCreate):
         """
         消息新增
         """
+        # 获取本chat之内的最新的的对话次数
         # 创建对象
         messages_instance = Messages(
             chat_id=body.get("chat_id"),
@@ -32,7 +32,8 @@ class MessagesService:
             model=body.get("model"),
             cost=body.get("cost"),
             extra_data=body.get("extra_data"),
-            status=body.get("status")
+            status=body.get("status"),
+            exchange_id=body.get("exchange_id")
         )
         self.db.add(messages_instance)
         # 把sql发送到数据库，并提交事务
@@ -50,14 +51,36 @@ class MessagesService:
         支持按标题模糊筛选
         """
         stmt = select(Messages)
-        stmt = stmt.where(Messages.chat_id == chat_id, Messages.is_deleted == False).order_by(Messages.created_at.asc())   
+        stmt = stmt.where(Messages.chat_id == chat_id, Messages.is_deleted == False).order_by(Messages.created_at.desc())   
         return await paginate(self.db, stmt, page, size)
     
     async def messages_for_rag(self, chat_id: str):
         """
         获取用于 RAG 查询的消息列表
         """
-        stmt = select(Messages).where(Messages.chat_id == chat_id, Messages.is_deleted == False).order_by(Messages.created_at.desc()).limit(settings.MAX_HISTORY_MESSAGES)
+        # 查询出所有的无效回复
+        exchange_ids = select(Messages.exchange_id).where(
+            Messages.content.contains("抱歉"),
+            Messages.chat_id == chat_id,
+            Messages.exchange_id.isnot(None)
+        ).distinct()
+        exchange_ids = await self.db.execute(exchange_ids)
+        exchange_ids = exchange_ids.scalars().all()
+        if exchange_ids:
+            stmt = select(Messages).where(
+                Messages.chat_id == chat_id, 
+                Messages.is_deleted == False,
+                ~Messages.exchange_id.in_(exchange_ids)
+            ).order_by(
+                Messages.created_at.desc()
+            ).limit(settings.MAX_HISTORY_MESSAGES)
+        else:
+            stmt = select(Messages).where(
+                Messages.chat_id == chat_id,
+                Messages.is_deleted == False
+            ).order_by(
+                Messages.created_at.desc()
+            ).limit(settings.MAX_HISTORY_MESSAGES)
         result = await self.db.execute(stmt)
         messages = result.scalars().all()
         # 反转升序
@@ -93,3 +116,13 @@ class MessagesService:
         await self.db.flush()
         await self.db.commit()
         return True
+
+    async def get_exchange_id(self, chat_id: str):
+        """
+        获取当前对话轮次
+        """
+        max_exchange_id = (
+            select(func.max(Messages.exchange_id)).where(Messages.chat_id == chat_id)
+        )
+        result = await self.db.execute(max_exchange_id)
+        return result.scalar_one_or_none()

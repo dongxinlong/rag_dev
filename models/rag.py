@@ -45,3 +45,4 @@ class Messages(BaseModel, BaseEntity):
     cost = Column(DECIMAL(12, 6), default=0, comment="消费成本")
     extra_data = Column(JSON, default={}, comment="元数据")
     status = Column(String(20), default="generating", comment="状态: generating, complated, failed")
+    exchange_id = Column(Integer, default=0, comment="对话轮次")  # 用来解决上下文污染，一个问题回答有问题，则本轮的用户问题+ai回复，再检索时都要过滤掉

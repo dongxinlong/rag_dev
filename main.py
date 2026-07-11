@@ -2,7 +2,6 @@
 from fastapi import FastAPI
 from fastapi_pagination import add_pagination
 from contextlib import asynccontextmanager
-# from api.routers import rag
 from api.middleware import cors, logging
 from api.middleware.rate_limiter import RateLimitMiddleware
 from config.settings import settings

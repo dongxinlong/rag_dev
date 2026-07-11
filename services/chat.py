@@ -36,9 +36,9 @@ class ChatService:
         获取所有的聊天列表
         支持按标题模糊筛选
         """
-        stmt = select(Chat)
+        stmt = select(Chat).where(Chat.is_deleted == False)
         if title:
-            stmt = stmt.where(Chat.title.contains(title), Chat.is_deleted == False)
+            stmt = stmt.where(Chat.title.contains(title))
         stmt = stmt.order_by(Chat.created_at.desc())
         return await paginate(self.db, stmt, page, size)
     

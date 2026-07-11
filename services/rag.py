@@ -28,11 +28,18 @@ class RAGService:
         self.db = db
         self.embedding_service = embedding_service
         self.messages_service = MessagesService(self.db)
+        self.current_exchange_id = 0
         self.system_prompts = """
             你是知识库问答助手。
-            - 如果提供了参考文档，基于参考文档回答
-            - 如果用户问的是对话历史相关的问题，基于历史记录回答
-            - 不要编造或使用自身知识回答知识类问题
+
+            回答规则：
+            1. 问候语（你好、hi、hello、早上好等）→ 友好回复，不走知识库
+            2. 感谢语（谢谢、感谢等）→ 礼貌回复
+            3. 闲聊（你是谁、你能做什么等）→ 简单介绍自己
+            4. 知识类问题 → 必须基于参考文档回答
+            5. 参考文档为空 → 回答：抱歉，知识库中没有找到相关信息
+
+            禁止：编造、推测、使用自身知识回答知识类问题
         """
 
     async def _get_messages_for_chatId(self, chat_id: str):
@@ -48,6 +55,10 @@ class RAGService:
             "model": self.llm_api_service.mode,
             "status": "completed"
         }
+        exchange_id = await self.messages_service.get_exchange_id(chat_id=chat_id)
+        exchange_id = exchange_id + 1 if exchange_id is not None else 1
+        data["exchange_id"] = exchange_id
+        self.current_exchange_id = exchange_id
         await self.messages_service.createMessages(**data)
 
     async def _save_llm_answer(self, chat_id: str, answer: dict):
@@ -62,7 +73,8 @@ class RAGService:
             "cost": answer.get("cost", 0),
             "model": answer.get("model", ""),
             "extra_data": answer.get("extra_data", {}),
-            "status": answer.get("status", "completed")
+            "status": answer.get("status", "completed"),
+            "exchange_id": self.current_exchange_id
         }
        
         return await self.messages_service.createMessages(**data)
@@ -84,6 +96,15 @@ class RAGService:
         result = await self.db.execute(stmt)
         return result.all()
     
+    def _is_greeting(self, question: str) -> bool:
+        """判断是否是问候语"""
+        greeting_words = [
+            "你好", "您好", "hi", "hello", "嗨", "早上好", "下午好", "晚上好",
+            "谢谢", "感谢", "再见", "拜拜", "你是谁", "你能做什么", "你是干什么的"
+        ]
+        question_lower = question.lower().strip()
+        return any(word in question_lower for word in greeting_words)
+
     async def _merge_prompts(self, question: str, documents: list, history: list = None) -> tuple[list, bool]:
         """
         合并问题和文档为 prompts, 载入历史消息
@@ -112,17 +133,18 @@ class RAGService:
             prompts.append(message)
             return prompts, True  # 可以调用 LLM
         else:
-            # 无文档时：检查是否有历史记录
+            # 无文档时：检查是否是问候语或有历史记录
+            is_greeting = self._is_greeting(question)
             has_history = bool(history)
 
-            if has_history:
-                # 有历史记录：允许调用 LLM，让它根据历史回答
+            if is_greeting or has_history:
+                # 问候语或有历史记录：允许调用 LLM
                 content = f"【参考文档】: 无\n\n【用户问题】: {question}"
                 message = {"role": "user", "content": content}
                 prompts.append(message)
                 return prompts, True
             else:
-                # 无文档 + 无历史：不调用 LLM，直接返回固定文案
+                # 无文档 + 无历史 + 非问候：不调用 LLM，直接返回固定文案
                 return prompts, False
 
     async def _prepare_prompts(self, chat_id: str, question: str, top_k: int):
@@ -190,9 +212,9 @@ class RAGService:
             # 3. 保存 AI 回复
             llm_answer = {
                 "content": answer.get("content", ""),
-                "tokens_prompt": answer.get("cost", {}).get("meta", {}).get("input_tokens", 0),
+                "tokens_prompt": answer.get("cost", {}).get("meta", {}).get("input_token", 0),
                 "tokens_completion": answer.get("cost", {}).get("meta", {}).get("completion_tokens", 0),
-                "cache_tokens": answer.get("cost", {}).get("meta", {}).get("cache_input_tokens", 0),
+                "cache_tokens": answer.get("cost", {}).get("meta", {}).get("cache_input_token", 0),
                 "cost": answer.get("cost", {}).get("cost", 0),
                 "model": self.llm_api_service.mode,
                 "extra_data": {"sources": sources},
@@ -288,8 +310,17 @@ class RAGService:
             full_content = full_content.strip()
             # 提取 cost 数值（cost_data 是字典 {"cost": 0.0015, "meta": {...}}）
             cost_value = cost_data.get("cost", 0) if isinstance(cost_data, dict) else cost_data
+            meta = cost_data.get("meta", {}) if isinstance(cost_data, dict) else {}
+            print("meta: ", meta)
+            # 提取token
+            tokens_prompt = meta.get("input_token", 0)
+            tokens_completion = meta.get("completion_tokens", 0)
+            cache_tokens = meta.get("cache_input_token", 0)
             # 更新msg信息：content，和 status
-            await self.messages_service.updateMessagesStatus(msg_id, content=full_content, status="completed", cost=cost_value)
+            await self.messages_service.updateMessagesStatus(
+                msg_id, content=full_content, status="completed", 
+                cost=cost_value, tokens_prompt=tokens_prompt, tokens_completion=tokens_completion, cache_tokens=cache_tokens
+                )
 
             data = json.dumps({
                 "type": "cost",

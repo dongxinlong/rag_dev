@@ -13,6 +13,7 @@ class MessagesCreate(BaseModel):
     cost: Decimal = Field(..., description="消耗的费用")
     extra_data: Optional[dict] = None
     cache_tokens: int = Field(..., description="缓存token数")
+    exchange_id: int = Field(..., description="对话轮次")
 
 
 class MessagesResponse(BaseModel):
