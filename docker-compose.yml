@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # MinIO 对象存储
+  minio:
+    image: minio/minio:latest
+    container_name: rag-minio
+    ports:
+      - "9000:9000"   # API 端口
+      - "9001:9001"   # 控制台端口
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - //e/docker-data/minio:/data
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+
+  # PostgreSQL + pgvector
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: rag-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - //e/docker-data/postgres:/var/lib/postgresql/data
+    command: postgres -c listen_addresses=* -c wal_level=replica -c max_wal_senders=3
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis (为 Celery 准备)
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    ports:
+      - "6379:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - //e/docker-data/redis:/data
+    command: redis-server --appendonly yes --save 900 1 --save 300 10 --save 60 10000 --requirepass ${REDIS_PASSWORD}
+    restart: unless-stopped
