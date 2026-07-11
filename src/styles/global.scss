@@ -1,0 +1,155 @@
+@use './variables' as *;
+
+/* ─── Reset ─── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-page);
+  line-height: 1.6;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-out);
+
+  &:hover {
+    color: var(--color-primary-light);
+  }
+}
+
+/* ─── 滚动条美化 ─── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(0.82 0.005 260);
+  border-radius: 3px;
+
+  &:hover {
+    background: oklch(0.70 0.005 260);
+  }
+}
+
+/* ─── NProgress 自定义 ─── */
+#nprogress .bar {
+  background: var(--color-primary) !important;
+  height: 2px !important;
+}
+
+#nprogress .peg {
+  box-shadow: 0 0 10px var(--color-primary), 0 0 5px var(--color-primary) !important;
+}
+
+/* ─── Element Plus 主题覆盖 ─── */
+:root {
+  --el-color-primary: var(--color-primary);
+  --el-color-success: var(--color-success);
+  --el-color-warning: var(--color-warning);
+  --el-color-danger: var(--color-danger);
+  --el-color-info: var(--color-info);
+  --el-font-family: var(--font-family);
+  --el-font-size-base: var(--text-base);
+  --el-border-radius-base: var(--radius-md);
+}
+
+/* ─── 通用工具类 ─── */
+.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ─── 页面容器 ─── */
+.page-container {
+  padding: var(--space-xl);
+  min-height: 100%;
+}
+
+// 表格页面：撑满剩余高度
+.page-fill {
+  display: flex;
+  flex-direction: column;
+
+  > .card:last-child {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+
+    :deep(.el-table) {
+      flex: 1;
+    }
+  }
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-xl);
+
+  h2 {
+    font-size: var(--text-xl);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+}
+
+/* ─── 卡片 ─── */
+.card {
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-light);
+  padding: var(--space-xl);
+  transition: box-shadow var(--duration-normal) var(--ease-out);
+
+  &:hover {
+    box-shadow: var(--shadow-md);
+  }
+}
+
+/* ─── 减少动画偏好 ─── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

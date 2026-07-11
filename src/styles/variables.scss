@@ -1,0 +1,99 @@
+/**
+ * 企业级 RAG 知识库 — 设计 Token
+ * 色系策略：Restrained — 深灰蓝主色 + 暖金强调 + 纯净中性色
+ * 色彩空间：OKLCH
+ */
+
+:root {
+  /* ─── 主色（Slate Blue，沉稳专业）─── */
+  --color-primary: oklch(0.50 0.100 250);
+  --color-primary-light: oklch(0.58 0.090 250);
+  --color-primary-lighter: oklch(0.93 0.035 250);
+  --color-primary-dark: oklch(0.42 0.100 250);
+
+  /* ─── 强调色（Warm Gold，冷暖对比）─── */
+  --color-accent: oklch(0.72 0.120 85);
+  --color-accent-light: oklch(0.90 0.060 85);
+
+  /* ─── 语义色 ─── */
+  --color-success: oklch(0.62 0.150 155);
+  --color-warning: oklch(0.75 0.140 80);
+  --color-danger: oklch(0.58 0.180 25);
+  --color-info: oklch(0.58 0.080 250);
+
+  /* ─── 中性色（纯净灰阶，无隐藏暖色）─── */
+  --color-bg: oklch(1.000 0.000 0);
+  --color-bg-page: oklch(0.975 0.002 260);
+  --color-bg-elevated: oklch(1.000 0.000 0);
+  --color-bg-hover: oklch(0.96 0.003 260);
+
+  /* ─── 文字色 ─── */
+  --color-text-primary: oklch(0.16 0.008 260);
+  --color-text-regular: oklch(0.35 0.005 260);
+  --color-text-secondary: oklch(0.52 0.005 260);
+  --color-text-placeholder: oklch(0.68 0.005 260);
+  --color-text-disabled: oklch(0.80 0.005 260);
+
+  /* ─── 边框 ─── */
+  --color-border: oklch(0.90 0.005 260);
+  --color-border-light: oklch(0.94 0.003 260);
+
+  /* ─── 侧边栏（深灰蓝，有温度的暗色）─── */
+  --sidebar-bg: oklch(0.16 0.018 255);
+  --sidebar-text: oklch(0.80 0.015 255);
+  --sidebar-text-active: oklch(1.000 0.000 0);
+  --sidebar-bg-active: oklch(0.24 0.040 250);
+  --sidebar-bg-hover: oklch(0.20 0.025 255);
+  --sidebar-width: 220px;
+  --sidebar-collapsed-width: 64px;
+
+  /* ─── 字体 ─── */
+  --font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* ─── 字号 ─── */
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.875rem;  /* 14px */
+  --text-md: 1rem;        /* 16px */
+  --text-lg: 1.125rem;    /* 18px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.5rem;     /* 24px */
+  --text-3xl: 1.875rem;   /* 30px */
+
+  /* ─── 间距 ─── */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+  --space-3xl: 48px;
+
+  /* ─── 圆角 ─── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ─── 阴影 ─── */
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.04);
+  --shadow-md: 0 2px 8px oklch(0 0 0 / 0.06);
+  --shadow-lg: 0 4px 16px oklch(0 0 0 / 0.08);
+  --shadow-xl: 0 8px 32px oklch(0 0 0 / 0.12);
+
+  /* ─── 动画 ─── */
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* ─── z-index 语义层 ─── */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+}
