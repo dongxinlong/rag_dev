@@ -33,11 +33,16 @@ class RAGService:
             你是知识库问答助手。
 
             回答规则：
-            1. 问候语（你好、hi、hello、早上好等）→ 友好回复，不走知识库
+            1. 问候语（你好、hi、hello、早上好等）→ 友好回复
             2. 感谢语（谢谢、感谢等）→ 礼貌回复
             3. 闲聊（你是谁、你能做什么等）→ 简单介绍自己
-            4. 知识类问题 → 必须基于参考文档回答
-            5. 参考文档为空 → 回答：抱歉，知识库中没有找到相关信息
+            4. 知识类问题 → 基于参考文档回答
+            5. 追问（还有吗、其他的、继续、补充等）→ 基于对话历史回答，只能回答历史中明确提到的内容，不能靠自己猜想去补充信息。
+            6. 参考文档为空 + 非追问 → 回答：抱歉，知识库中没有找到相关信息
+
+            重要：区分"追问"和"新问题"
+            - 追问：对上一个回答的延续（还有吗、其他的呢、继续说）
+            - 新问题：完全不同的知识问题
 
             禁止：编造、推测、使用自身知识回答知识类问题
         """
@@ -121,6 +126,10 @@ class RAGService:
         has_documents = bool(documents)
         docs_content = "\n".join([doc.content for doc in documents]) if documents else "无"
 
+        # 判断是否是追问
+        follow_up_keywords = ["还有", "其他的", "继续", "补充", "然后呢", "然后", "还有吗", "然后呢", "除此之外"]
+        is_follow_up = any(kw in question for kw in follow_up_keywords)
+
         if has_documents:
             # 有文档时：正常 prompt
             content = f"""
@@ -133,18 +142,18 @@ class RAGService:
             prompts.append(message)
             return prompts, True  # 可以调用 LLM
         else:
-            # 无文档时：检查是否是问候语或有历史记录
+            # 无文档时：检查是否是问候语、追问或有历史记录
             is_greeting = self._is_greeting(question)
             has_history = bool(history)
 
-            if is_greeting or has_history:
-                # 问候语或有历史记录：允许调用 LLM
+            if is_greeting or is_follow_up or has_history:
+                # 问候语、追问或有历史记录：允许调用 LLM
                 content = f"【参考文档】: 无\n\n【用户问题】: {question}"
                 message = {"role": "user", "content": content}
                 prompts.append(message)
                 return prompts, True
             else:
-                # 无文档 + 无历史 + 非问候：不调用 LLM，直接返回固定文案
+                # 无文档 + 无历史 + 非问候 + 非追问：不调用 LLM，直接返回固定文案
                 return prompts, False
 
     async def _prepare_prompts(self, chat_id: str, question: str, top_k: int):

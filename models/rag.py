@@ -10,7 +10,7 @@ class Document(BaseModel, BaseEntity):
     file_id = Column(String(36), nullable=False, comment="关联知识库文件ID")
 
     # ============ 文档基本信息 ============
-    file_name = Column(String(255), nullable=False, comment="文件名")
+    file_name = Column(String(500), nullable=False, comment="文件名")
     file_type = Column(String(20), nullable=False, comment="文件类型: txt, doc, docx, pdf, md, xlsx")
 
     # ============ 切片内容 ============
