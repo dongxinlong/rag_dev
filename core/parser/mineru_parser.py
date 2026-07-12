@@ -68,15 +68,17 @@ class MinerUParser(BaseParser):
             "-m", "auto"
         ]
 
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+        # 使用 subprocess.run（兼容 Windows + threads 池）
+        import subprocess
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=3600  # 1 小时超时
         )
-        _, stderr = await process.communicate()
 
-        if process.returncode != 0:
-            raise Exception(f"MinerU 解析失败: {stderr.decode()}")
+        if result.returncode != 0:
+            raise Exception(f"MinerU 解析失败: {result.stderr}")
 
         # 3. 读取生成的 .md 文件（自动检测输出目录）
         file_base_name = os.path.splitext(file_name)[0]
@@ -112,13 +114,13 @@ class MinerUParser(BaseParser):
         if content is None:
             raise Exception("无法识别输出文件编码")
 
-        # 4. 上传图片到 metadata 目录
+        # 4. 上传图片到 images 目录（与 MD 中的引用路径一致）
         metadata_images = []
         if images_dir and os.path.exists(images_dir):
             for img_file in os.listdir(images_dir):
                 img_path = os.path.join(images_dir, img_file)
                 if os.path.isfile(img_path):
-                    img_minio_key = f"documents/{file_uuid}/metadata/{img_file}"
+                    img_minio_key = f"documents/{file_uuid}/parsed/images/{img_file}"
                     await self.minio_client.upload_file(
                         bucket_name=settings.MINIO_BUCKET,
                         object_name=img_minio_key,

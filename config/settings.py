@@ -23,6 +23,20 @@ class Settings(BaseSettings):
     EMBEDDING_BASE_URL: str
     EMBEDDING_API_KEY: str
 
+    # ============ 视觉模型配置（Ollama） ============
+    # Ollama 服务地址
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    # 视觉模型名称
+    VISION_MODEL: str = "minicpm-v"
+    # 图片描述提示词
+    VISION_PROMPT: str = "请详细描述这张图片的内容，包括文字、图表、电路等所有可见信息"
+    # 图片处理最大并发数（限制同时调用视觉模型的数量）
+    VISION_MAX_CONCURRENT: int = 2
+    # 图片处理每批数量
+    VISION_BATCH_SIZE: int = 5
+    # 图片处理最大重试次数
+    VISION_MAX_RETRIES: int = 3
+
     # 数据库配置
     PG_HOST: str
     PG_PORT: int
@@ -56,6 +70,45 @@ class Settings(BaseSettings):
     def MINIO_FULL_URL(self) -> str:
         """MinIO 完整访问地址（带 bucket）"""
         return f"{self.MINIO_URL}/{self.MINIO_BUCKET}"
+
+    # Redis 配置（Celery Broker）
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_PASSWORD: str = ""
+
+    # ============ Celery 配置 ============
+    # 时区
+    CELERY_TIMEZONE: str = "Asia/Shanghai"
+    # 任务结果过期时间（秒），7 天
+    CELERY_RESULT_EXPIRES: int = 604800
+    # 任务软超时（秒），2 小时
+    CELERY_TASK_SOFT_TIME_LIMIT: int = 7200
+    # 任务硬超时（秒），2 小时 5 分钟
+    CELERY_TASK_TIME_LIMIT: int = 7500
+    # Worker 并发数
+    CELERY_WORKER_CONCURRENCY: int = 4
+    # Worker 最大任务数（超过后重启，防内存泄漏）
+    CELERY_WORKER_MAX_TASKS: int = 100
+    # Worker 进程池类型
+    # 可选值：prefork（多进程，默认）、threads（多线程）、solo（单进程调试）
+    # Windows 建议用 threads（prefork 有权限问题）
+    # Linux 建议用 prefork（性能最好）
+    CELERY_WORKER_POOL: str = "threads"
+    # 重试延迟（秒）
+    CELERY_RETRY_DELAY: int = 60
+    # 最大重试次数
+    CELERY_MAX_RETRIES: int = 3
+
+    # ============ Flower 配置 ============
+    # 监听端口
+    FLOWER_PORT: int = 5555
+    # 绑定地址
+    FLOWER_ADDRESS: str = "0.0.0.0"
+    # 认证（格式：["用户名:密码"]，空列表表示无认证）
+    FLOWER_BASIC_AUTH: list = []
+    # 日志级别
+    FLOWER_LOG_LEVEL: str = "INFO"
 
     # RAG配置
     SIMILARITY_THRESHOLD: float = 0.5  # 余弦相似度阈值

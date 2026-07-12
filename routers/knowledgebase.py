@@ -137,6 +137,9 @@ async def upload_file(
     file_name = file.filename.split("/")[-1].split("\\")[-1]
     file_ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
 
+    # 支持解析的格式
+    SUPPORTED_FORMATS = ["pdf", "docx", "pptx", "xlsx", "txt", "md", "csv"]
+
     try:
         kb = await service.upload_file(
             file_name=file_name,
@@ -147,7 +150,31 @@ async def upload_file(
             category_id=category_id,
             content_type=file.content_type
         )
-        return SuccessResponse(data=KnowledgeBaseResponse.model_validate(kb))
+
+        # 只有支持的格式才触发 Celery 异步任务
+        if file_ext in SUPPORTED_FORMATS:
+            from tasks.document import process_document
+            from config.logging import get_logger
+            logger = get_logger("knowledgebase.upload")
+
+            logger.info(f"准备提交 Celery 任务: kb_id={category_id}, file_id={kb.id}, file_path={kb.minio_key}")
+            task = process_document.delay(
+                kb_id=category_id,  # 知识库 ID（分类 ID）
+                file_path=kb.minio_key,
+                file_id=str(kb.id)  # 文件 ID
+            )
+            logger.info(f"Celery 任务已提交: task_id={task.id}")
+
+            return SuccessResponse(
+                data=KnowledgeBaseResponse.model_validate(kb),
+                message="上传成功，文档处理任务已提交"
+            )
+        else:
+            # 不支持的格式，只上传不解析
+            return SuccessResponse(
+                data=KnowledgeBaseResponse.model_validate(kb),
+                message=f"上传成功（{file_ext} 格式不支持文档解析，仅存储文件）"
+            )
     except ValueError as e:
         return ErrorResponse(message=str(e))
 

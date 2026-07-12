@@ -1,0 +1,20 @@
+# ==================== 启动配置 ====================
+
+[server]
+# FastAPI 服务
+command = "uvicorn"
+args = ["main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+
+[worker]
+# Celery Worker
+command = "celery"
+args = ["-A", "celery_app", "worker", "-l", "info", "-c", "4", "--logfile=logs/celery_worker.log", "--autoreload"]
+
+[flower]
+# Flower 监控
+command = "celery"
+args = ["-A", "celery_app", "flower", "-c", "config.flower_config"]
+
+# ==================== 日志配置 ====================
+[logging]
+log_dir = "logs"

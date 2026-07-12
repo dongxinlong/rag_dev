@@ -12,6 +12,7 @@ from routers.chat import chat_router
 from routers.knowledgebase import router as knowledge_router
 from routers.user import router as user_router
 from routers.messages import messages_router
+from routers.parse_log import router as parse_log_router
 
 logger = get_logger(__name__)
 
@@ -50,6 +51,7 @@ app.include_router(chat_router, prefix=router_prefix)
 app.include_router(messages_router, prefix=router_prefix)
 app.include_router(knowledge_router, prefix=router_prefix)
 app.include_router(user_router, prefix=router_prefix)
+app.include_router(parse_log_router, prefix=router_prefix)
 
 # 5. 健康检查
 @app.get("/health")

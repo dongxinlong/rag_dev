@@ -503,6 +503,23 @@ class KnowledgeBaseService:
         await self.db.refresh(kb)
         return {"success": True, "data": kb}
 
+    async def update_status(self, kb_id, status: str, error_message: str = None, **kwargs) -> None:
+        """更新状态（Celery 任务使用，无权限检查）"""
+        kb = await self.get_by_id(kb_id)
+        if not kb:
+            return
+
+        kb.status = status
+        if error_message:
+            kb.error_message = error_message
+
+        # 更新其他字段
+        for key, value in kwargs.items():
+            if value is not None and hasattr(kb, key):
+                setattr(kb, key, value)
+
+        await self.db.commit()
+
     async def copy(self, kb_id, target_parent_id: str, user_id: str) -> dict:
         """复制文件/文件夹"""
         kb = await self.get_by_id(kb_id)
