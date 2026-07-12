@@ -247,6 +247,7 @@ class ImageProcessor:
                 response = await client.get(image_url)
                 response.raise_for_status()
                 image_data = response.content
+                logger.debug(f"图片下载成功: {len(image_data)} 字节")
 
             # 转为 base64
             import base64
@@ -268,9 +269,15 @@ class ImageProcessor:
                         "stream": False
                     }
                 )
-                response.raise_for_status()
+                if response.status_code != 200:
+                    logger.error(f"视觉模型返回错误: {response.status_code} - {response.text[:200]}")
+                    raise Exception(f"视觉模型错误: {response.status_code}")
                 result = response.json()
-                return result.get("message", {}).get("content", "[描述失败]")
+                content = result.get("message", {}).get("content", "")
+                if not content:
+                    logger.error(f"视觉模型返回空内容: {result}")
+                    raise Exception("视觉模型返回空内容")
+                return content
 
         except Exception as e:
             logger.error(f"图片描述失败: {e}")

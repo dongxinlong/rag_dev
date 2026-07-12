@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str
     EMBEDDING_BASE_URL: str
     EMBEDDING_API_KEY: str
+    # ============ Embedding 配置 ============
+    # Embedding 每批处理数量
+    EMBEDDING_BATCH_SIZE: int = 500
 
     # ============ 视觉模型配置（Ollama） ============
     # Ollama 服务地址
@@ -31,11 +34,13 @@ class Settings(BaseSettings):
     # 图片描述提示词
     VISION_PROMPT: str = "请详细描述这张图片的内容，包括文字、图表、电路等所有可见信息"
     # 图片处理最大并发数（限制同时调用视觉模型的数量）
-    VISION_MAX_CONCURRENT: int = 2
+    VISION_MAX_CONCURRENT: int = 1
     # 图片处理每批数量
     VISION_BATCH_SIZE: int = 5
     # 图片处理最大重试次数
     VISION_MAX_RETRIES: int = 3
+
+    
 
     # 数据库配置
     PG_HOST: str
@@ -113,8 +118,14 @@ class Settings(BaseSettings):
     # RAG配置
     SIMILARITY_THRESHOLD: float = 0.5  # 余弦相似度阈值
     DISTANCE_THRESHOLD: float = 0.5  # 余弦距离阈值
-    CHUNK_SIZE: int = 80  # 文本块大小
-    OVERLAP_SENTENCES: int = 2  # 块间重叠的句子数
+    # 分块配置
+    CHUNK_SIZE: int = 1024  # 单 chunk 最大 token 数
+    CHUNK_OVERLAP: int = 150  # 重叠 token 数（句子边界）
+    CHUNK_MIN_SIZE: int = 50  # 最小 chunk token 数
+    # 语义完整性检查配置
+    CHUNK_TRANSITION_WORDS: list = ["但是", "然而", "不过", "除外", "此外", "另外", "同时"]  # 转折词列表
+    # 句子分割配置
+    CHUNK_SENTENCE_PATTERNS: str = r'[。！？.!?]'  # 句子结束符正则
     MAX_CONTEXT_LENGTH: int = 5000  # 最大上下文长度
     MAX_COMPLETION_TOKENS: int = 5000  # 最大输出token数
     MAX_HISTORY_MESSAGES: int = 20  # 最多使用的历史消息数

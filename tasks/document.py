@@ -247,6 +247,41 @@ async def _process_document_async(task, kb_id: str, file_path: str, file_id: str
                     )
                     logger.info(f"result.md 已保存: {result_minio_key}")
 
+                    # 7. 分块处理
+                    await log_service.update_stage(log_id, "chunking", "文档分块中")
+                    chunk_count = 0
+                    try:
+                        from core.splitter.chunker import MarkdownChunker
+                        from services.vectorizer import get_vectorizer
+
+                        chunker = MarkdownChunker()
+                        chunks = chunker.chunk(
+                            content=processed_content,
+                            document_id=file_id,
+                            document_name=file_name
+                        )
+                        logger.info(f"分块完成: {len(chunks)} 个 chunk")
+
+                        # 8. 向量化并存入数据库
+                        await log_service.update_stage(log_id, "vectorizing", "向量化入库中")
+                        vectorizer = get_vectorizer(session)
+                        chunk_count = await vectorizer.vectorize_and_store(
+                            chunks=chunks,
+                            file_id=file_id,
+                            file_name=file_name
+                        )
+                        logger.info(f"向量化完成: {chunk_count} 个 chunk 已入库")
+
+                        await log_service.update(
+                            log_id,
+                            chunk_count=chunk_count,
+                            chunk_status="completed"
+                        )
+                    except Exception as e:
+                        await log_service.add_error(log_id, "chunking", str(e), "chunk_error")
+                        logger.error(f"分块/向量化失败: {e}")
+                        # 失败不中断，继续完成任务
+
                     # 更新知识库
                     await kb_service.update_status(
                         file_id, "completed",
@@ -273,7 +308,10 @@ async def _process_document_async(task, kb_id: str, file_path: str, file_id: str
             logger.info(f"文档处理完成: {kb_id}, 总耗时: {total_duration:.1f}s")
 
     finally:
-        await db_session.close()
+        try:
+            await db_session.close()
+        except Exception:
+            pass  # 忽略关闭时的错误
 
 
 def _fail_task_sync(file_id: str, error_message: str, error_stage: str):

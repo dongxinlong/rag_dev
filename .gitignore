@@ -75,3 +75,6 @@ coverage.xml
 # 解析后的文件
 parsed/
 metadata/
+
+.claude
+CLAUDE.md

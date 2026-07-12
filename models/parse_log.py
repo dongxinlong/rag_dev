@@ -63,6 +63,10 @@ class ParseLog(BaseModel, BaseEntity):
     error_stage = Column(String(50), comment="出错阶段")
     errors = Column(JSON, comment="所有错误记录(JSON 数组)")
 
+    # ============ 分块信息 ============
+    chunk_status = Column(String(20), comment="分块状态: pending/processing/completed/failed")
+    chunk_count = Column(Integer, default=0, comment="分块数量")
+
     # ============ 性能信息 ============
     total_duration = Column(Float, comment="总耗时(秒)")
     memory_usage = Column(Integer, comment="内存使用(MB)")

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, JSON, DECIMAL
+from sqlalchemy import Column, String, Integer, Text, JSON, DECIMAL, Boolean
 from pgvector.sqlalchemy import Vector
 from models.base import BaseModel, BaseEntity
 
@@ -6,24 +6,30 @@ from models.base import BaseModel, BaseEntity
 class Document(BaseModel, BaseEntity):
     __tablename__ = "documents"
 
-    # 物理关联（不使用级联）
-    file_id = Column(Integer, nullable=False, comment="关联文件ID")
+    # ============ 物理关联 ============
+    file_id = Column(String(36), nullable=False, comment="关联知识库文件ID")
 
-    # 文档基本信息
+    # ============ 文档基本信息 ============
     file_name = Column(String(255), nullable=False, comment="文件名")
     file_type = Column(String(20), nullable=False, comment="文件类型: txt, doc, docx, pdf, md, xlsx")
 
-    # 切片内容
+    # ============ 切片内容 ============
     content = Column(Text, nullable=False, comment="切片内容")
     embedding = Column(Vector(2560), nullable=False, comment="向量")
 
-    # 位置信息
-    chunk_index = Column(Integer, comment="块索引")
-    page_number = Column(Integer, comment="页码(pdf/excel)")
+    # ============ 位置信息 ============
+    chunk_index = Column(Integer, comment="块在文档中的序号")
+    heading = Column(String(255), comment="所属标题")
+    heading_level = Column(Integer, comment="标题级别(1-6)")
+    heading_path = Column(JSON, comment="完整标题路径")
 
-    # 文档元数据
-    title = Column(String(255), comment="文档标题")
-    author = Column(String(100), comment="作者")
+    # ============ 统计信息 ============
+    token_count = Column(Integer, comment="token数量")
+    char_count = Column(Integer, comment="字符数量")
+
+    # ============ 分块元数据 ============
+    chunk_strategy = Column(String(50), comment="分块策略: paragraph/sentence/atomic/merged")
+    is_atomic = Column(Boolean, default=False, comment="是否原子块")
 
 
 class Chat(BaseModel, BaseEntity):

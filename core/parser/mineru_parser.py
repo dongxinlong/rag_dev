@@ -55,101 +55,113 @@ class MinerUParser(BaseParser):
             file_path=file_path
         )
 
-        # 2. 解析到项目 resources 目录（避免污染用户目录）
+        # 2. 复制文件到临时目录（使用短文件名，避免 Windows 路径问题）
         from config.settings import BASE_DIR
         temp_dir = os.path.join(BASE_DIR, "resources", "parsed", file_uuid)
         os.makedirs(temp_dir, exist_ok=True)
 
-        cmd = [
-            "mineru",
-            "-p", file_path,
-            "-o", temp_dir,
-            "-b", "pipeline",
-            "-m", "auto"
-        ]
+        # 使用短文件名（UUID + 扩展名）
+        file_ext = os.path.splitext(file_name)[1]
+        short_file_name = f"{file_uuid}{file_ext}"
+        temp_file_path = os.path.join(temp_dir, short_file_name)
 
-        # 使用 subprocess.run（兼容 Windows + threads 池）
-        import subprocess
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=3600  # 1 小时超时
-        )
-
-        if result.returncode != 0:
-            raise Exception(f"MinerU 解析失败: {result.stderr}")
-
-        # 3. 读取生成的 .md 文件（自动检测输出目录）
-        file_base_name = os.path.splitext(file_name)[0]
-        parsed_dir = os.path.join(temp_dir, file_base_name)
-
-        # 查找实际的输出目录（auto/office/...）
-        md_file = None
-        images_dir = None
-        if os.path.exists(parsed_dir):
-            for subdir in os.listdir(parsed_dir):
-                subdir_path = os.path.join(parsed_dir, subdir)
-                if os.path.isdir(subdir_path):
-                    potential_md = os.path.join(subdir_path, f"{file_base_name}.md")
-                    if os.path.exists(potential_md):
-                        md_file = potential_md
-                        images_dir = os.path.join(subdir_path, "images")
-                        break
-
-        if md_file is None:
-            raise Exception(f"未找到解析后的 .md 文件，目录结构: {os.listdir(parsed_dir) if os.path.exists(parsed_dir) else '目录不存在'}")
-
-        # 尝试多种编码
-        encodings = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
-        content = None
-        for encoding in encodings:
-            try:
-                with open(md_file, "r", encoding=encoding) as f:
-                    content = f.read()
-                break
-            except UnicodeDecodeError:
-                continue
-
-        if content is None:
-            raise Exception("无法识别输出文件编码")
-
-        # 4. 上传图片到 images 目录（与 MD 中的引用路径一致）
-        metadata_images = []
-        if images_dir and os.path.exists(images_dir):
-            for img_file in os.listdir(images_dir):
-                img_path = os.path.join(images_dir, img_file)
-                if os.path.isfile(img_path):
-                    img_minio_key = f"documents/{file_uuid}/parsed/images/{img_file}"
-                    await self.minio_client.upload_file(
-                        bucket_name=settings.MINIO_BUCKET,
-                        object_name=img_minio_key,
-                        file_path=img_path
-                    )
-                    metadata_images.append({
-                        "name": img_file,
-                        "minio_key": img_minio_key
-                    })
-
-        # 5. 上传解析后的 .md 文件到 MinIO
-        parsed_minio_key = f"documents/{file_uuid}/parsed/{file_base_name}.md"
-        await self.minio_client.upload_data(
-            bucket_name=settings.MINIO_BUCKET,
-            object_name=parsed_minio_key,
-            data=content.encode("utf-8"),
-            content_type="text/markdown"
-        )
-
-        # 6. 清理临时目录
+        # 复制文件
         import shutil
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        shutil.copy2(file_path, temp_file_path)
 
-        return {
-            "content": content,
-            "minio_key": original_minio_key,
-            "parsed_minio_key": parsed_minio_key,
-            "metadata_images": metadata_images
-        }
+        try:
+            # 3. 调用 MinerU 解析
+            cmd = [
+                "mineru",
+                "-p", temp_file_path,
+                "-o", temp_dir,
+                "-b", "pipeline",
+                "-m", "auto"
+            ]
+
+            # 使用 subprocess.run（兼容 Windows + threads 池）
+            import subprocess
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600  # 1 小时超时
+            )
+
+            if result.returncode != 0:
+                raise Exception(f"MinerU 解析失败: {result.stderr}")
+
+            # 4. 读取生成的 .md 文件（使用短文件名查找）
+            file_base_name = os.path.splitext(short_file_name)[0]
+            parsed_dir = os.path.join(temp_dir, file_base_name)
+
+            # 查找实际的输出目录（auto/office/...）
+            md_file = None
+            images_dir = None
+            if os.path.exists(parsed_dir):
+                for subdir in os.listdir(parsed_dir):
+                    subdir_path = os.path.join(parsed_dir, subdir)
+                    if os.path.isdir(subdir_path):
+                        potential_md = os.path.join(subdir_path, f"{file_base_name}.md")
+                        if os.path.exists(potential_md):
+                            md_file = potential_md
+                            images_dir = os.path.join(subdir_path, "images")
+                            break
+
+            if md_file is None:
+                raise Exception(f"未找到解析后的 .md 文件，目录结构: {os.listdir(parsed_dir) if os.path.exists(parsed_dir) else '目录不存在'}")
+
+            # 尝试多种编码
+            encodings = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
+            content = None
+            for encoding in encodings:
+                try:
+                    with open(md_file, "r", encoding=encoding) as f:
+                        content = f.read()
+                    break
+                except UnicodeDecodeError:
+                    continue
+
+            if content is None:
+                raise Exception("无法识别输出文件编码")
+
+            # 5. 上传图片到 images 目录（与 MD 中的引用路径一致）
+            metadata_images = []
+            if images_dir and os.path.exists(images_dir):
+                for img_file in os.listdir(images_dir):
+                    img_path = os.path.join(images_dir, img_file)
+                    if os.path.isfile(img_path):
+                        img_minio_key = f"documents/{file_uuid}/parsed/images/{img_file}"
+                        await self.minio_client.upload_file(
+                            bucket_name=settings.MINIO_BUCKET,
+                            object_name=img_minio_key,
+                            file_path=img_path
+                        )
+                        metadata_images.append({
+                            "name": img_file,
+                            "minio_key": img_minio_key
+                        })
+
+            # 6. 上传解析后的 .md 文件到 MinIO
+            parsed_minio_key = f"documents/{file_uuid}/parsed/{file_base_name}.md"
+            await self.minio_client.upload_data(
+                bucket_name=settings.MINIO_BUCKET,
+                object_name=parsed_minio_key,
+                data=content.encode("utf-8"),
+                content_type="text/markdown"
+            )
+
+            return {
+                "content": content,
+                "minio_key": original_minio_key,
+                "parsed_minio_key": parsed_minio_key,
+                "metadata_images": metadata_images
+            }
+
+        finally:
+            # 清理临时目录
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     async def parse(self, file_path: str, file_id: int = None) -> ParseContent:
         """

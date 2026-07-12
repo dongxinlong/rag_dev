@@ -21,17 +21,21 @@ class LLMAPIService:
     OpenAI 基础服务调用 LLM
     """
     def __init__(self, timeout=3000, temperature=0.3, top_p=0.3, top_k=20):
-        self.client = AsyncOpenAI(
-            api_key=settings.API_KEY,
-            base_url=settings.BASE_URL,
-            timeout=timeout
-        )
+        self.timeout = timeout
         self.mode = settings.MODEL_NAME
         self.calculate_cost_service = CalculateCostFactoriesService(mode=self.mode)
         self.temperature = temperature
         self.top_p = top_p
         self.top_k = top_k
         self.stream_last_cost = 0
+
+    def _get_client(self):
+        """获取新的客户端实例"""
+        return AsyncOpenAI(
+            api_key=settings.API_KEY,
+            base_url=settings.BASE_URL,
+            timeout=self.timeout
+        )
 
     def _build_message(self, messages, system_prompt):
         """
@@ -78,21 +82,22 @@ class LLMAPIService:
         cost = 0
         async def _call():
             # 调用 API 发送消息
-            response = await self.client.chat.completions.create(
-                model=self.mode,
-                messages = all_messages,
-                max_tokens=settings.MAX_COMPLETION_TOKENS,
-                timeout=settings.LLM_TIMEOUT
-            )
-            if getattr(response, "usage") and response.usage:
-                logger.debug(f"USAGE: {response.usage}")
-                usage = response.usage
-                input_token = usage.prompt_tokens              # ✅ 输入 token
-                cache_input_token = usage.prompt_tokens_details.cached_tokens or 0  # ✅ 缓存命中
-                completion_tokens = usage.completion_tokens    # ✅ 输出 token
-                calculator = CalculateCostFactoriesService(mode=str(self.mode).split("-")[0])
-                cost = calculator.calculate_cost(input_token, cache_input_token, completion_tokens)
-            return {"content": response.choices[0].message.content, "cost": cost}
+            async with self._get_client() as client:
+                response = await client.chat.completions.create(
+                    model=self.mode,
+                    messages = all_messages,
+                    max_tokens=settings.MAX_COMPLETION_TOKENS,
+                    timeout=settings.LLM_TIMEOUT
+                )
+                if getattr(response, "usage") and response.usage:
+                    logger.debug(f"USAGE: {response.usage}")
+                    usage = response.usage
+                    input_token = usage.prompt_tokens              # ✅ 输入 token
+                    cache_input_token = usage.prompt_tokens_details.cached_tokens or 0  # ✅ 缓存命中
+                    completion_tokens = usage.completion_tokens    # ✅ 输出 token
+                    calculator = CalculateCostFactoriesService(mode=str(self.mode).split("-")[0])
+                    cost = calculator.calculate_cost(input_token, cache_input_token, completion_tokens)
+                return {"content": response.choices[0].message.content, "cost": cost}
         try:
             return await self._retry_with_backoff(_call)
         except Exception as e:
@@ -105,46 +110,47 @@ class LLMAPIService:
         """
         all_messages = self._build_message(messages, system_prompt)
         cost = 0
-        async def _call():
-            # 调用 API 发送消息
-            response = await self.client.chat.completions.create(
-                model=self.mode,
-                messages=all_messages,
-                stream=True,
-                max_tokens=settings.MAX_COMPLETION_TOKENS,
-                timeout=settings.LLM_TIMEOUT
-            )
-            return response
-            
-        try:
-            # 尝试重建流
-            response = await self._retry_with_backoff(_call)
-            async for chunk in response:
-                try:
-                    # 计算成本
-                    if chunk.usage:
-                        # 输入token
-                        input_token = chunk.usage.prompt_tokens
-                        # 缓存token
-                        cache_input_token = chunk.usage.prompt_tokens_details.cached_tokens if chunk.usage.prompt_tokens_details else 0
-                        # 输出token
-                        completion_tokens = chunk.usage.completion_tokens if chunk.usage.completion_tokens else 0
+        async with self._get_client() as client:
+            async def _call():
+                # 调用 API 发送消息
+                response = await client.chat.completions.create(
+                    model=self.mode,
+                    messages=all_messages,
+                    stream=True,
+                    max_tokens=settings.MAX_COMPLETION_TOKENS,
+                    timeout=settings.LLM_TIMEOUT
+                )
+                return response
+
+            try:
+                # 尝试重建流
+                response = await self._retry_with_backoff(_call)
+                async for chunk in response:
+                    try:
                         # 计算成本
-                        calculator = CalculateCostFactoriesService(mode=str(self.mode).split("-")[0])
-                        cost = calculator.calculate_cost(input_token, cache_input_token, completion_tokens)
-                        logger.debug(f"cost: {cost}")
-                    if chunk.choices:
-                        content = chunk.choices[0].delta.content
-                        if content:
-                            yield content
-                except Exception as e:
-                    # 如果是单个chunk解析失败了，允许跳过继续
-                    continue
-            # 测试流程结束后，更新总成本
-            self.stream_last_cost = cost
-        except Exception as e:
-            self._handle_error(e)
-            raise
+                        if chunk.usage:
+                            # 输入token
+                            input_token = chunk.usage.prompt_tokens
+                            # 缓存token
+                            cache_input_token = chunk.usage.prompt_tokens_details.cached_tokens if chunk.usage.prompt_tokens_details else 0
+                            # 输出token
+                            completion_tokens = chunk.usage.completion_tokens if chunk.usage.completion_tokens else 0
+                            # 计算成本
+                            calculator = CalculateCostFactoriesService(mode=str(self.mode).split("-")[0])
+                            cost = calculator.calculate_cost(input_token, cache_input_token, completion_tokens)
+                            logger.debug(f"cost: {cost}")
+                        if chunk.choices:
+                            content = chunk.choices[0].delta.content
+                            if content:
+                                yield content
+                    except Exception as e:
+                        # 如果是单个chunk解析失败了，允许跳过继续
+                        continue
+                # 测试流程结束后，更新总成本
+                self.stream_last_cost = cost
+            except Exception as e:
+                self._handle_error(e)
+                raise
 
     def _handle_error(self, e: Exception):
         """
