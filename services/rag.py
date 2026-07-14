@@ -3,8 +3,10 @@ RAG 相关服务接口
 """
 import time
 import json
+import asyncio
 
-from fastapi import Depends
+from fastapi import Depends, Request
+from typing import List, Dict, Tuple
 
 from sqlalchemy import select, delete, func
 
@@ -23,11 +25,12 @@ logger = get_logger("rag")
 
 class RAGService:
 
-    def __init__(self, llm_api_service: LLMAPIService, db: DatabaseSession, embedding_service: EmbeddingService):
+    def __init__(self, llm_api_service: LLMAPIService, db: DatabaseSession, embedding_service: EmbeddingService, request: Request):
         self.llm_api_service = llm_api_service
         self.db = db
         self.embedding_service = embedding_service
         self.messages_service = MessagesService(self.db)
+        self.rerank_model = request.app.state.rerank_model
         self.current_exchange_id = 0
         self.system_prompts = """
             你是知识库问答助手。
@@ -100,7 +103,105 @@ class RAGService:
         stmt = stmt.where(distance < settings.DISTANCE_THRESHOLD)
         result = await self.db.execute(stmt)
         return result.all()
+
+    async def _bm25_search(self, question: str, top_k: int = 5):
+        """
+        BM25 关键词搜索（PostgreSQL 全文检索）
+
+        Args:
+            question: 用户查询
+            top_k: 返回结果数量
+
+        Returns:
+            [(Document, score), ...]
+        """
+        from sqlalchemy import func
+
+        # 使用 jiebacfg 进行中文分词搜索
+        tsquery = func.to_tsquery('jiebacfg', question)
+        ts_rank = func.ts_rank(Document.search_vector, tsquery).label("rank")
+
+        stmt = select(Document, ts_rank).where(
+            Document.search_vector.op('@@')(tsquery)
+        ).order_by(ts_rank.desc()).limit(top_k)
+
+        result = await self.db.execute(stmt)
+        return result.all()
     
+    async def _hybrid_search(self, question: str, top_k: int = 5):
+        """
+        混合检索
+        """
+        # 1. 调用 _search 获取向量检索结果
+        # 2. 调用 _bm25_search 获取关键词检索结果
+        # 并发召回
+        vector_results, bm25_results = await asyncio.gather(
+            self._search(question=question, top_k=top_k ** 2),
+            self._bm25_search(question=question, top_k=top_k ** 2)
+        )
+        # 3. 合并结果，去重 + (RRF粗排序)
+        rrf_res = await self._rrf_fusion(vector_results, bm25_results)
+        # 4. 精排
+        reranked_results = await self._rerank(question, rrf_res, top_k)
+        return reranked_results
+
+    async def _rrf_fusion(self,
+            vector_results: List[Dict], 
+            bm25_results: List[Dict],
+            k: int = 60
+    ) -> List[Tuple]:
+        """
+        RRF (Reciprocal Rank Fusion) 融合
+        """
+        # 建立文档ID -> RRF分数的映射
+        rrf_scores = {}
+        doc_map = {}
+        # 安全起见，统一排序
+        # 1. 向量：按照 distance 升序， 越小越好
+        vector_sorted = sorted(vector_results, key=lambda x: x[1], reverse=False)
+        # 2. BM25：按照 score 降序， 越大越好
+        bm25_sorted = sorted(bm25_results, key=lambda x: x[1], reverse=True)
+        """
+        由于 RRF，注重的是排名，因此这里用不到 Score
+        """
+        # 2. 处理向量检索的结果
+        for index, (doc, score) in enumerate(vector_sorted):
+            doc_id = doc.id
+            value = rrf_scores.get(doc_id, 0) + 1.0 / (k + index)
+            rrf_scores[doc_id] = value  
+            doc_map[doc_id] = doc
+        # 3. 处理 BM25 检索的结果
+        for index, (doc, score) in enumerate(bm25_sorted):
+            doc_id = doc.id
+            value = rrf_scores.get(doc_id, 0) + 1.0 / (k + index)
+            rrf_scores[doc_id] = value
+            doc_map[doc_id] = doc
+        # 排序：Value值越大，说明在向量检索中的排名就靠前，BM25检索中的排名也靠前，所以 n路召回的文档，value会更大
+        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
+        # 返回融合的结果
+        return [(doc_map[doc_id], rrf_scores[doc_id]) for doc_id in sorted_ids]
+    
+    async def _rerank(self, question: str, results: List[Tuple], top_k: int = 5) -> List[Tuple]:
+        """
+        重排序
+        精排：使用Corss-Encoder 对召回结果重新打分
+        """
+        if not self.rerank_model or not results:
+            logger.warning("Rerank 模型未加载，跳过重排序")
+            return results[:top_k]
+        logger.info("开始重排序")
+        # 构造 (question, document) 对
+        pairs = [(question, doc.content) for doc, score in results]
+        # 用预加载模型预测
+        scores = self.rerank_model.predict(pairs)
+        # 按照分数降序排序
+        ranked_results = sorted(
+            zip(results, scores),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        return [(doc, rerank_score) for (doc, _old_score), rerank_score in ranked_results[:top_k]]
+
     def _is_greeting(self, question: str) -> bool:
         """判断是否是问候语"""
         greeting_words = [
@@ -165,19 +266,21 @@ class RAGService:
         history = await self._get_messages_for_chatId(chat_id=chat_id)
 
         # 2. 搜索文档（始终搜索，不跳过）
-        result = await self._search(question=question, top_k=top_k)
+        result = await self._hybrid_search(question=question, top_k=top_k)
 
         # 3. 构建Prompts（同时包含历史和文档）
         prompts, should_call_llm = await self._merge_prompts(question, [doc for doc, distance in result], history)
         # 4. 保存用户问题
         await self._save_user_question(chat_id, question)
         # 5. 构造 sources
+        # 注意：经过 Rerank 后，distance 实际上是 rerank_score（越大越相关）
+        # 而不是原始的余弦距离（越小越相似），所以直接使用
         sources = [
             {
                 "id": doc.id,
                 "file_name": doc.file_name,
                 "content": doc.content,
-                "similarity": 1 - distance
+                "similarity": float(distance)
             }
             for doc, distance in result
         ]
@@ -193,6 +296,10 @@ class RAGService:
         try:
             # 1. RAG前置流程
             prompts, sources, should_call_llm = await self._prepare_prompts(chat_id, question, top_k)
+
+            # 调试：检查 token 数量
+            total_chars = sum(len(p.get("content", "")) for p in prompts)
+            logger.info(f"[RAG调试] prompts 数量: {len(prompts)}, 总字符数: {total_chars}, sources 数量: {len(sources)}")
 
             # 2. 如果不需要调用 LLM（无文档 + 非历史问题），直接返回固定文案
             if not should_call_llm:
@@ -218,6 +325,10 @@ class RAGService:
 
             # 2. 调用LLM API进行回答
             answer = await self.llm_api_service.send_message(prompts, self.system_prompts)
+
+            # 调试：查看 LLM 返回
+            logger.info(f"[RAG调试] LLM 返回: {answer.get('content', '')[:100]}...")
+
             # 3. 保存 AI 回复
             llm_answer = {
                 "content": answer.get("content", ""),

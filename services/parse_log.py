@@ -63,13 +63,14 @@ class ParseLogService:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_by_kb_id(self, kb_id: str, file_id: str = None, page: int = 1, size: int = 20) -> PageData:
+    async def list_by_kb_id(self, kb_id: str, file_id: str = None, status: str = None, page: int = 1, size: int = 20) -> PageData:
         """
         根据知识库 ID 获取日志列表
 
         Args:
             kb_id: 知识库 ID（必填）
             file_id: 文件 ID（可选，用于筛选特定文件）
+            status: 任务状态（可选）：success/failed/pending
         """
         # 简单查询，不使用关联
         stmt = select(ParseLog).where(ParseLog.kb_id == kb_id)
@@ -77,6 +78,10 @@ class ParseLogService:
         # 可选：按 file_id 筛选
         if file_id:
             stmt = stmt.where(ParseLog.file_id == file_id)
+
+        # 可选：按状态筛选
+        if status:
+            stmt = stmt.where(ParseLog.task_status == status)
 
         stmt = stmt.order_by(ParseLog.created_at.desc())
         return await paginate(self.db, stmt, page, size)

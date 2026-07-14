@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, Integer, Text, JSON, DECIMAL, Boolean
 from pgvector.sqlalchemy import Vector
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from models.base import BaseModel, BaseEntity
 
 
@@ -16,6 +17,9 @@ class Document(BaseModel, BaseEntity):
     # ============ 切片内容 ============
     content = Column(Text, nullable=False, comment="切片内容")
     embedding = Column(Vector(2560), nullable=False, comment="向量")
+
+    # ============ 全文搜索 ============
+    search_vector = Column(TSVECTOR, comment="全文搜索向量（用于BM25）")
 
     # ============ 位置信息 ============
     chunk_index = Column(Integer, comment="块在文档中的序号")

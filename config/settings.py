@@ -40,8 +40,6 @@ class Settings(BaseSettings):
     # 图片处理最大重试次数
     VISION_MAX_RETRIES: int = 3
 
-    
-
     # 数据库配置
     PG_HOST: str
     PG_PORT: int
@@ -118,6 +116,7 @@ class Settings(BaseSettings):
     # RAG配置
     SIMILARITY_THRESHOLD: float = 0.5  # 余弦相似度阈值
     DISTANCE_THRESHOLD: float = 0.5  # 余弦距离阈值
+    
     # 分块配置
     CHUNK_SIZE: int = 1024  # 单 chunk 最大 token 数
     CHUNK_OVERLAP: int = 150  # 重叠 token 数（句子边界）

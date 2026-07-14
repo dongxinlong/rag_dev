@@ -18,6 +18,7 @@ router = APIRouter(prefix="/parse-logs", tags=["文件解析日志"])
 async def get_parse_logs(
     kb_id: str = Query(..., description="知识库 ID（必填）"),
     file_id: str = Query(None, description="文件 ID（可选）"),
+    status: str = Query(None, description="任务状态（可选）：success/failed/pending"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(db_session.get_session),
@@ -29,9 +30,10 @@ async def get_parse_logs(
     Args:
         kb_id: 知识库 ID（必填）
         file_id: 文件 ID（可选）
+        status: 任务状态（可选）：success/failed/pending
     """
     service = ParseLogService(session)
-    result = await service.list_by_kb_id(kb_id=kb_id, file_id=file_id, page=page, size=size)
+    result = await service.list_by_kb_id(kb_id=kb_id, file_id=file_id, status=status, page=page, size=size)
 
     # 批量获取文件信息
     file_ids = [item.file_id for item in result.items if item.file_id]
