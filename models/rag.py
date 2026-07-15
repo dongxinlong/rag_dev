@@ -40,7 +40,9 @@ class Chat(BaseModel, BaseEntity):
     __tablename__ = "chats"
 
     title = Column(String(255), default="新对话", nullable=False, comment="聊天标题")
-
+    summary = Column(Text, nullable=True, comment="聊天摘要")
+    summary_exchange_id = Column(Integer, default=0, comment="摘要对应的对话轮次")
+    key_points = Column(JSON, default=dict, comment="关键信息(计划，实体)")
 
 class Messages(BaseModel, BaseEntity):
     __tablename__ = "messages"

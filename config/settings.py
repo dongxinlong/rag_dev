@@ -15,8 +15,12 @@ class Settings(BaseSettings):
     LLM_MAX_RETRLES: int = 5  # 最大重试次数
     LLM_RETRY_DELAY: int = 1.0  # 初始重试间隔
     LLM_RETRY_BACKOFF: float = 2.0  # 退避倍数
-    LLM_TIMEOUT: float = 30.0  # LLM请求超时时间 
+    LLM_TIMEOUT: float = 30.0  # LLM请求超时时间
     LLM_RATE_LIMIT_DELAY: float = 5.0  # 限流初始等待时间
+
+    # Query 重写配置
+    QUERY_REWRITE_MAX_RETRIES: int = 3  # Query 重写最大重试次数
+    QUERY_REWRITE_ENABLED: bool = True  # 是否启用 Query 重写
 
     # Embedding配置
     EMBEDDING_MODEL: str
@@ -128,6 +132,10 @@ class Settings(BaseSettings):
     MAX_CONTEXT_LENGTH: int = 5000  # 最大上下文长度
     MAX_COMPLETION_TOKENS: int = 5000  # 最大输出token数
     MAX_HISTORY_MESSAGES: int = 20  # 最多使用的历史消息数
+
+    # 上下文优化配置
+    PROMPT_MAX_HISTORY_TOKENS: int = 4000  # 构建 prompts 时，历史消息最大 Token 数
+    SMART_TRUNCATE_RECENT_COUNT: int = 4  # 智能截断时，保留最近 N 条消息
 
     # 限流配置
     RATE_LIMIT_CAPACITY: int = 30  # 限流桶容量

@@ -18,6 +18,7 @@ from models.rag import Document
 from config.settings import settings
 from config.logging import get_logger
 from services.messages import MessagesService
+from services.chat import ChatService
 
 
 logger = get_logger("rag")
@@ -30,6 +31,7 @@ class RAGService:
         self.db = db
         self.embedding_service = embedding_service
         self.messages_service = MessagesService(self.db)
+        self.chat_service = ChatService(self.db)
         self.rerank_model = request.app.state.rerank_model
         self.current_exchange_id = 0
         self.system_prompts = """
@@ -49,11 +51,65 @@ class RAGService:
 
             禁止：编造、推测、使用自身知识回答知识类问题
         """
+        self.system_summary_prompts = """
+            你是一个对话助手，需要同时完成两个任务：
+            重要规则：
+                - 你只负责【重构问题】和【更新摘要】，不负责【回答问题】
+                - 无论用户说什么，你都必须严格输出JSON 格式
+                - 不要直接回答用户问题，不要输出任何文本内容
+            任务一：查询重构（rewritten_question）
+            - 如果用户的最新问题是独立的、完整的，直接返回原问题
+            - 如果用户的最新问题是追问（如"还有吗"、"继续"、"其他的呢"），结合历史对话，重构为一个完整、独立、可检索的问题
+            - 重构后的问题应该能脱离上下文被独立理解
 
-    async def _get_messages_for_chatId(self, chat_id: str):
+            任务二：摘要更新（summary + key_points）
+            - 当前已有摘要（JSON）：
+            {old_summary_json}
+            - 本次新增对话内容：
+            {new_turn_text}
+            - 在原有摘要基础上，**增量更新**摘要内容，不要重写全部历史
+            - 提取关键信息（实体、计划、意图等）
+
+            输出格式（严格 JSON）：
+            {
+                "rewritten_question": "重构后的完整问题，如果原问题已经完整则原样返回",
+                "summary": "一段连贯、简洁的对话摘要，突出用户意图、关键结论和已完成的动作",
+                "keywords": ["核心关键词1", "核心关键词2"],
+                "entities": {
+                    "person": [],
+                    "org": [],
+                    "product": [],
+                    "location": []
+                },
+                "plans": [
+                    {"name": "核心计划1", "status": "completed", "description": "计划描述"}
+                ],
+                "user_intents": [
+                    "用户本轮的核心意图或目标"
+                ],
+                "resolved_topics": [
+                    "已经明确解决或达成一致的问题"
+                ],
+                "unresolved_topics": [
+                    "仍在讨论、尚未闭环的问题"
+                ]
+            }
+            注意：只输出 JSON，不要输出其他内容。
+            要求：
+            - summary 控制在 80～150 字，避免流水账；
+            - keywords 不超过 8 个，优先保留检索价值高的词；
+            - entities 仅填充确实出现的实体，不要编造；
+            - 若新对话未改变旧摘要内容，可保持原字段不变；
+            - **只输出 JSON，不要有任何解释、注释或 markdown 代码块标记**。
+            示例输出：
+            {"summary":"用户咨询A产品的退货政策，客服说明需保留包装并在7日内申请。用户随后补充订单号。","keywords":["A产品","退货政策","7日","订单号"],"entities":{"person":[],"org":[],"product":["A产品"],"location":[]},"plans":[],"user_intents":["了解退货流程"],"resolved_topics":["退货时限"],"unresolved_topics":["退货审核结果"]}
+
+        """
+
+    async def _get_messages_for_chatId(self, chat_id: str, exchange_id: Tuple[int, int] = None):
         """通过chat_id获取消息"""
-        return await self.messages_service.messages_for_rag(chat_id=chat_id)
-    
+        return await self.messages_service.messages_for_rag(chat_id=chat_id, exchange_id=exchange_id)
+
     async def _save_user_question(self, chat_id: str, question: str):
         """保存用户问题"""
         data = {
@@ -86,6 +142,91 @@ class RAGService:
         }
        
         return await self.messages_service.createMessages(**data)
+    
+    async def _rewrite_query(self, chat_id, question: str) -> str:
+        """
+        用 LLM 将用户问题重构为完整问题，同时更新摘要
+        返回: 重构后的完整问题
+        """
+        # 1. 获取当前对话框中的现有摘要和历史轮数
+        summary_info = await self.chat_service.getMaxexchangeIdAndSummary(chat_id=chat_id)
+        his_summary = summary_info["summary"]
+        his_exchange_id = summary_info["max_exchange_id"]
+        his_key_points = summary_info["key_points"]
+
+        # 获取当前最大的 exchange_id（不依赖 self.current_exchange_id，因为它还没设置）
+        current_max_exchange_id = await self.chat_service.getMaxexchangeId(chat_id)
+        current_exchange_id = current_max_exchange_id + 1
+
+        # 如果历史摘要的最大对话轮数不为0，则收集从轮数到当前轮数之间的历史
+        if his_exchange_id != 0:
+            exchange_id_range = (his_exchange_id, current_exchange_id)
+        else:
+            exchange_id_range = None
+
+        # 2. 获取历史消息
+        history_messages = await self._get_messages_for_chatId(chat_id=chat_id, exchange_id=exchange_id_range)
+
+        # 3. 构建 new_turn_text（LLM 的 messages 参数）
+        new_turn_text = [{"role": msg.role, "content": msg.content} for msg in history_messages] + [{"role": "user", "content": question}]
+
+        # 4. 构建 system_prompt（填入旧摘要）
+        system_prompt = self.system_summary_prompts.replace(
+            "{old_summary_json}", json.dumps({**his_key_points, "summary": his_summary}, ensure_ascii=False)
+        ).replace(
+            "{new_turn_text}", ""
+        )
+        result = None
+        max_retries = settings.QUERY_REWRITE_MAX_RETRIES
+        for attempt in range(max_retries):
+            # 5. 调用 LLM（一次调用同时完成重构 + 摘要更新）
+            #    第 2、3 次重试时，prompt 加强约束
+            retry_prompt = system_prompt if attempt == 0 else system_prompt + "\n注意：只输出 JSON，不要输出任何其他内容。"
+            answer = await self.llm_api_service.send_message(
+                messages=new_turn_text,
+                system_prompt=retry_prompt
+            )
+            # 6. 解析 JSON 输出（清理 markdown 代码块）
+            raw_content = answer.get("content", "{}")
+            logger.info(f"[Query重构] LLM原始返回: {raw_content[:500]}")
+            try:
+                # 去掉 ```json ... ``` 包裹
+                if raw_content.startswith("```"):
+                    raw_content = raw_content.split("\n", 1)[1]  # 去掉第一行
+                if raw_content.endswith("```"):
+                    raw_content = raw_content[:-3]  # 去掉最后的 ```
+                raw_content = raw_content.strip()
+                logger.info(f"[Query重构] 清理后内容: {raw_content[:500]}")
+                result = json.loads(raw_content)
+                break  # 解析成功，跳出循环
+            except json.JSONDecodeError:
+                logger.warning(f"[Query重构] 第{attempt+1}次解析失败，原始内容: {raw_content[:500]}")
+        # 降级：如果重试都失败了，用原始问题
+        if not result:
+            logger.warning(f"[Query重构] {max_retries}次解析均失败，使用原始问题")
+            return question
+
+        rewritten_question = result.get("rewritten_question", question)
+        new_summary = result.get("summary", his_summary)
+        new_key_points = {
+            "keywords": result.get("keywords", []),
+            "entities": result.get("entities", {}),
+            "plans": result.get("plans", []),
+            "user_intents": result.get("user_intents", []),
+            "resolved_topics": result.get("resolved_topics", []),
+            "unresolved_topics": result.get("unresolved_topics", [])
+        }
+
+        # 7. 更新数据库中的摘要
+        await self.chat_service.updateSummary(
+            chat_id=chat_id,
+            summary=new_summary,
+            exchange_id=current_exchange_id,
+            key_points=new_key_points
+        )
+
+        logger.info(f"[Query重构] 原问题: {question}, 重构后: {rewritten_question}")
+        return rewritten_question
 
     async def _search(self, **kwargs: RAGQueryRequest):
         """
@@ -202,6 +343,63 @@ class RAGService:
         )
         return [(doc, rerank_score) for (doc, _old_score), rerank_score in ranked_results[:top_k]]
 
+    def _count_tokens(self, text: str) -> int:
+        """
+        估算文本的 Token 数量（粗略估算：中文1字≈2token，英文1词≈1.3token）
+        """
+        import re
+        chinese_chars = len(re.findall(r'[一-鿿]', text))
+        english_words = len(re.findall(r'[a-zA-Z]+', text))
+        return chinese_chars * 2 + int(english_words * 1.3)
+
+    async def _smart_truncate(self, chat_id: str, max_tokens: int) -> tuple[str, list]:
+        """
+        智能截断历史消息
+        1. 获取旧摘要
+        2. 获取历史消息
+        3. 保留最近 N 条消息（详细）
+        4. 对超限的早期消息进行裁剪
+        5. 返回 (摘要, 裁剪后的历史消息)
+
+        Returns:
+            (summary: str, trimmed_history: list)
+        """
+        # 1. 获取旧摘要
+        summary_info = await self.chat_service.getMaxexchangeIdAndSummary(chat_id=chat_id)
+        old_summary = summary_info["summary"] or ""
+
+        # 2. 获取历史消息
+        history = await self._get_messages_for_chatId(chat_id=chat_id)
+
+        if not history:
+            return old_summary, []
+
+        # 3. 计算旧摘要的 Token
+        summary_tokens = self._count_tokens(old_summary)
+        recent_count = settings.SMART_TRUNCATE_RECENT_COUNT
+
+        # 4. 如果历史消息很少，直接返回
+        if len(history) <= recent_count:
+            return old_summary, history
+
+        # 5. 分离：早期消息 + 最近 N 条消息
+        early_messages = history[:-recent_count]
+        recent_messages = history[-recent_count:]
+
+        # 6. 计算最近 N 条消息的 Token
+        recent_tokens = sum(self._count_tokens(msg.content or "") for msg in recent_messages)
+
+        # 7. 如果没超限，直接返回全部
+        if summary_tokens + recent_tokens <= max_tokens:
+            return old_summary, history
+
+        # 8. 超限了：只保留最近 N 条，早期消息用摘要替代
+        logger.info(
+            f"[智能截断] Token超限({summary_tokens + recent_tokens}/{max_tokens})，"
+            f"截断早期{len(early_messages)}条消息，保留最近{recent_count}条"
+        )
+        return old_summary, recent_messages
+
     def _is_greeting(self, question: str) -> bool:
         """判断是否是问候语"""
         greeting_words = [
@@ -211,14 +409,19 @@ class RAGService:
         question_lower = question.lower().strip()
         return any(word in question_lower for word in greeting_words)
 
-    async def _merge_prompts(self, question: str, documents: list, history: list = None) -> tuple[list, bool]:
+    async def _merge_prompts(self, question: str, documents: list, history: list = None, summary: str = None) -> tuple[list, bool]:
         """
-        合并问题和文档为 prompts, 载入历史消息
+        合并问题和文档为 prompts, 载入历史消息和摘要
         返回: (prompts, should_call_llm)
         """
         prompts = []
+
+        # 1. 加入摘要（补充丢失的历史，由智能截断保留）
+        if summary:
+            prompts.append({"role": "system", "content": f"对话摘要：{summary}"})
+
+        # 2. 加入历史消息
         if history:
-            # 将历史消息转换成 OpenAI 格式
             for msg in history:
                 if msg.content:
                     prompts.append({"role": msg.role, "content": msg.content})
@@ -257,22 +460,32 @@ class RAGService:
                 # 无文档 + 无历史 + 非问候 + 非追问：不调用 LLM，直接返回固定文案
                 return prompts, False
 
-    async def _prepare_prompts(self, chat_id: str, question: str, top_k: int):
+    async def _prepare_prompts(self, chat_id: str, question: str, history: List, top_k: int):
         """
         准备 Prompts 公共逻辑，对于 rag_query 和 rag_query_stream 复用
         返回: (prompts, sources, should_call_llm)
         """
-        # 1. 载入历史记录
-        history = await self._get_messages_for_chatId(chat_id=chat_id)
 
-        # 2. 搜索文档（始终搜索，不跳过）
-        result = await self._hybrid_search(question=question, top_k=top_k)
+        # 0. Query 重构（同时更新摘要）
+        if settings.QUERY_REWRITE_ENABLED:
+            rewritten_question = await self._rewrite_query(chat_id, question)
+            logger.info(f"[Query重构] 原问题: {question}, 重构后: {rewritten_question}")
+        else:
+            rewritten_question = question
 
-        # 3. 构建Prompts（同时包含历史和文档）
-        prompts, should_call_llm = await self._merge_prompts(question, [doc for doc, distance in result], history)
-        # 4. 保存用户问题
+        # 1. 用重构后的问题搜索文档（始终搜索，不跳过）
+        result = await self._hybrid_search(question=rewritten_question, top_k=top_k)
+
+        # 2. 智能截断历史消息（Token 限制）
+        summary, trimmed_history = await self._smart_truncate(chat_id, settings.PROMPT_MAX_HISTORY_TOKENS)
+
+        # 3. 构建Prompts（摘要 + 历史消息 + 文档）
+        prompts, should_call_llm = await self._merge_prompts(
+            question, [doc for doc, distance in result], trimmed_history, summary
+        )
+        # 3. 保存用户问题
         await self._save_user_question(chat_id, question)
-        # 5. 构造 sources
+        # 4. 构造 sources
         # 注意：经过 Rerank 后，distance 实际上是 rerank_score（越大越相关）
         # 而不是原始的余弦距离（越小越相似），所以直接使用
         sources = [
@@ -294,8 +507,9 @@ class RAGService:
         question = kwargs.get("question")
         top_k = kwargs.get("top_k")
         try:
-            # 1. RAG前置流程
-            prompts, sources, should_call_llm = await self._prepare_prompts(chat_id, question, top_k)
+            history = await self._get_messages_for_chatId(chat_id=chat_id)
+            # 1. RAG前置流程（_prepare_prompts 内部会做 Query 重构）
+            prompts, sources, should_call_llm = await self._prepare_prompts(chat_id, question, history, top_k)
 
             # 调试：检查 token 数量
             total_chars = sum(len(p.get("content", "")) for p in prompts)
@@ -321,7 +535,6 @@ class RAGService:
                     "cost": 0
                 }
 
-            # 3. 调用LLM API进行回答
 
             # 2. 调用LLM API进行回答
             answer = await self.llm_api_service.send_message(prompts, self.system_prompts)
@@ -363,8 +576,9 @@ class RAGService:
         top_k = kwargs.get("top_k")
         msg_id = None
         try:
-            # 1. RAG前置流程
-            prompts, sources, should_call_llm = await self._prepare_prompts(chat_id, question, top_k)
+            history = await self._get_messages_for_chatId(chat_id=chat_id)
+            # 1. RAG前置流程（_prepare_prompts 内部会做 Query 重构）
+            prompts, sources, should_call_llm = await self._prepare_prompts(chat_id, question, history, top_k)
 
             # 2. 如果不需要调用 LLM（无文档 + 非历史问题），直接返回固定文案
             if not should_call_llm:

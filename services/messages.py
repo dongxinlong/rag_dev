@@ -3,7 +3,7 @@ Messages 相关接口
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, not_
-from typing import Union
+from typing import Union, Tuple
 
 from models.rag import Messages
 from schemas.messages import MessagesCreate, MessagesResponse
@@ -54,7 +54,7 @@ class MessagesService:
         stmt = stmt.where(Messages.chat_id == chat_id, Messages.is_deleted == False).order_by(Messages.created_at.desc())   
         return await paginate(self.db, stmt, page, size)
     
-    async def messages_for_rag(self, chat_id: str):
+    async def messages_for_rag(self, chat_id: str, exchange_id: Tuple[int, int] = None):
         """
         获取用于 RAG 查询的消息列表
         """
@@ -81,6 +81,8 @@ class MessagesService:
             ).order_by(
                 Messages.created_at.desc()
             ).limit(settings.MAX_HISTORY_MESSAGES)
+        if exchange_id:
+            stmt = stmt.where(Messages.exchange_id >= exchange_id[0], Messages.exchange_id <= exchange_id[1])
         result = await self.db.execute(stmt)
         messages = result.scalars().all()
         # 反转升序
