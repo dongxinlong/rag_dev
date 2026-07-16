@@ -25,6 +25,8 @@
 | ORM | SQLAlchemy（async） |
 | 任务队列 | Celery + Redis |
 | 对象存储 | MinIO |
+| 文档解析 | MinerU（PDF / Word / XLSX 等转 Markdown） |
+| 图片识别 | Ollama 视觉模型（minicpm-v，图片内容描述） |
 | LLM | Qwen2.5（Ollama 本地部署） |
 | Embedding | BAAI/bge-large-zh-v1.5 |
 | Reranker | BAAI/bge-reranker-base |
@@ -62,7 +64,8 @@ LLM 生成回答（SSE 流式输出）
 - PostgreSQL 15+（需安装 pgvector 和 pg_jieba 扩展）
 - Redis 7+
 - MinIO
-- Ollama（用于本地部署 LLM）
+- MinerU（文档解析，PDF / Word 等转 Markdown，需安装 `mineru` 和 `magic-pdf`）
+- Ollama（用于本地部署 LLM 和视觉模型）
 
 ### 安装与启动
 
@@ -71,15 +74,19 @@ LLM 生成回答（SSE 流式输出）
 git clone https://github.com/your-username/ai-study.git
 cd ai-study
 
-# 安装依赖
-pip install -r requirements.txt
+# 安装依赖（使用 uv）
+uv sync
 
 # 配置环境变量
 cp .env.example .env
-# 编辑 .env 填入数据库、Redis、MinIO 等配置
+# 编辑 .env 填入数据库、Redis、MinIO、Ollama 等配置
 
-# 启动数据库（使用 Docker）
+# 启动数据库和 MinIO（使用 Docker）
 docker-compose up -d postgres redis minio
+
+# 启动 Ollama 并拉取模型
+ollama pull qwen2.5        # LLM 模型
+ollama pull minicpm-v      # 视觉模型（图片识别）
 
 # 执行数据库迁移
 alembic upgrade head
@@ -153,6 +160,26 @@ ai-study/
 ### 容错降级
 
 LLM 输出 JSON 解析失败时自动重试 3 次，全部失败后降级使用原始问题。核心功能支持配置项动态开关。
+
+### 文档解析流程
+
+```
+上传文档（PDF / Word / MD / XLSX / CSV）
+    ↓
+MinerU 解析 → 统一转为 Markdown 格式
+    ↓
+图片识别（Ollama 视觉模型 minicpm-v 生成图片描述）
+    ↓
+Markdown 智能分块（四步流程）
+  ├── 1. 识别文档层级结构
+  ├── 2. 按语义单元递归切分
+  ├── 3. 语义完整性检查
+  └── 4. 句子边界智能重叠
+    ↓
+Embedding 向量化（bge-large-zh-v1.5）
+    ↓
+存入 pgvector
+```
 
 ## License
 
