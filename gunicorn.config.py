@@ -7,8 +7,8 @@ uv run gunicorn main:app -c gunicorn.config.py
 import os
 import multiprocessing
 
-# 强制设置生产环境
-os.environ["APP_ENV"] = "production"
+# 环境配置（development 读 .env，production 读 .env.production）
+os.environ["APP_ENV"] = "development"
 
 # HuggingFace 国内镜像
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
