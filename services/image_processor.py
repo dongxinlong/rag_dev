@@ -253,31 +253,9 @@ class ImageProcessor:
             import base64
             image_base64 = base64.b64encode(image_data).decode("utf-8")
 
-            # 调用视觉模型
-            async with httpx.AsyncClient(timeout=120) as client:
-                response = await client.post(
-                    f"{settings.OLLAMA_BASE_URL}/api/chat",
-                    json={
-                        "model": settings.VISION_MODEL,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": settings.VISION_PROMPT,
-                                "images": [image_base64]
-                            }
-                        ],
-                        "stream": False
-                    }
-                )
-                if response.status_code != 200:
-                    logger.error(f"视觉模型返回错误: {response.status_code} - {response.text[:200]}")
-                    raise Exception(f"视觉模型错误: {response.status_code}")
-                result = response.json()
-                content = result.get("message", {}).get("content", "")
-                if not content:
-                    logger.error(f"视觉模型返回空内容: {result}")
-                    raise Exception("视觉模型返回空内容")
-                return content
+            # 使用 vision_service 调用视觉模型（支持 Ollama 和 OpenAI 格式）
+            content = await vision_service.describe_image_from_base64(image_base64)
+            return content
 
         except Exception as e:
             logger.error(f"图片描述失败: {e}")

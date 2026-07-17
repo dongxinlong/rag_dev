@@ -25,11 +25,11 @@
 | ORM | SQLAlchemy（async） |
 | 任务队列 | Celery + Redis |
 | 对象存储 | MinIO |
-| 文档解析 | MinerU（PDF / Word / XLSX 等转 Markdown） |
-| 图片识别 | Ollama 视觉模型（minicpm-v，图片内容描述） |
-| LLM | Qwen2.5（Ollama 本地部署） |
-| Embedding | BAAI/bge-large-zh-v1.5 |
-| Reranker | BAAI/bge-reranker-base |
+| 文档解析 | MinerU API（云端解析，PDF / Word / PPT / Excel 转 Markdown） |
+| 图片识别 | 硅基流动 Qwen2.5-VL（云端视觉模型） |
+| LLM | 小米 MiMo（API 调用） |
+| Embedding | 硅基流动 Qwen3-Embedding-4B（API 调用） |
+| Reranker | BAAI/bge-reranker-base（本地部署） |
 | 容器化 | Docker Compose |
 
 ## 系统架构
@@ -64,8 +64,9 @@ LLM 生成回答（SSE 流式输出）
 - PostgreSQL 15+（需安装 pgvector 和 pg_jieba 扩展）
 - Redis 7+
 - MinIO
-- MinerU（文档解析，PDF / Word 等转 Markdown，需安装 `mineru` 和 `magic-pdf`）
-- Ollama（用于本地部署 LLM 和视觉模型）
+- MinerU API Token（免费，云端解析文档）
+- 硅基流动 API Key（Embedding + 视觉模型）
+- 小米 MiMo API Key（LLM）
 
 ### 安装与启动
 
@@ -79,14 +80,10 @@ uv sync
 
 # 配置环境变量
 cp .env.example .env
-# 编辑 .env 填入数据库、Redis、MinIO、Ollama 等配置
+# 编辑 .env 填入数据库、Redis、MinIO、API Key 等配置
 
 # 启动数据库和 MinIO（使用 Docker）
 docker-compose up -d postgres redis minio
-
-# 启动 Ollama 并拉取模型
-ollama pull qwen2.5        # LLM 模型
-ollama pull minicpm-v      # 视觉模型（图片识别）
 
 # 执行数据库迁移
 alembic upgrade head

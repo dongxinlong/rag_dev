@@ -1,11 +1,40 @@
 """
 统一管理所有的配置，从.env中获取
+支持开发环境(.env)和生产环境(.env.production)切换
+
+使用方式：
+- 本地开发：默认读 .env
+- 生产部署：设置环境变量 APP_ENV=production 或传参 --env production
 """
+import os
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
 # 项目根目录
 BASE_DIR = Path(__file__).parent.parent
+
+def _get_env_file() -> str:
+    """
+    根据环境变量 APP_ENV 判断使用哪个配置文件
+    - APP_ENV=production 或 --env production → .env.production
+    - 其他情况 → .env（默认开发环境）
+    """
+    # 1. 优先从命令行参数读取（uvicorn main:app --env production）
+    for i, arg in enumerate(sys.argv):
+        if arg == "--env" and i + 1 < len(sys.argv):
+            env = sys.argv[i + 1].lower()
+            if env == "production":
+                return str(BASE_DIR / ".env.production")
+            return str(BASE_DIR / ".env")
+
+    # 2. 从环境变量读取（APP_ENV=production）
+    app_env = os.getenv("APP_ENV", "development").lower()
+    if app_env == "production":
+        return str(BASE_DIR / ".env.production")
+
+    # 3. 默认开发环境
+    return str(BASE_DIR / ".env")
 
 class Settings(BaseSettings):
     # LLM配置
@@ -30,19 +59,35 @@ class Settings(BaseSettings):
     # Embedding 每批处理数量
     EMBEDDING_BATCH_SIZE: int = 500
 
-    # ============ 视觉模型配置（Ollama） ============
-    # Ollama 服务地址
+    # ============ 视觉模型配置 ============
+    # API 格式：ollama 或 openai
+    VISION_API_FORMAT: str = "ollama"
+    # 服务地址（Ollama 或 OpenAI 兼容 API）
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     # 视觉模型名称
     VISION_MODEL: str = "minicpm-v"
+    # API 密钥（OpenAI 格式需要，Ollama 不需要）
+    VISION_API_KEY: str = ""
     # 图片描述提示词
     VISION_PROMPT: str = "请详细描述这张图片的内容，包括文字、图表、电路等所有可见信息"
     # 图片处理最大并发数（限制同时调用视觉模型的数量）
-    VISION_MAX_CONCURRENT: int = 1
+    VISION_MAX_CONCURRENT: int = 3
     # 图片处理每批数量
     VISION_BATCH_SIZE: int = 5
     # 图片处理最大重试次数
     VISION_MAX_RETRIES: int = 3
+
+    # ============ MinerU API 配置 ============
+    # MinerU API Token
+    MINERU_API_TOKEN: str = ""
+    # MinerU API 地址
+    MINERU_API_BASE_URL: str = "https://mineru.net/api/v4"
+    # MinerU API 最大并发数（API 限额 50 个/分钟）
+    MINERU_MAX_CONCURRENT: int = 10
+    # MinerU API 轮询间隔（秒）
+    MINERU_POLL_INTERVAL: int = 3
+    # MinerU API 超时时间（秒）
+    MINERU_TIMEOUT: int = 600
 
     # 数据库配置
     PG_HOST: str
@@ -140,7 +185,7 @@ class Settings(BaseSettings):
     # 限流配置
     RATE_LIMIT_CAPACITY: int = 30  # 限流桶容量
     RATE_LIMIT_REFILL_RATE: float = 5.0  # 限流桶填充速率（个/秒）
-    MAX_CONCURRENCY: int = 20  # 最大并发请求数
+    MAX_CONCURRENCY: int = 30  # 最大并发请求数
 
     # JWT 配置
     JWT_SECRET_KEY: str = "your-secret-key-change-in-production"
@@ -153,7 +198,8 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     class Config:
-        env_file = str(BASE_DIR / ".env")
+        env_file = _get_env_file()
+        env_file_encoding = "utf-8"
 
 
 settings = Settings()

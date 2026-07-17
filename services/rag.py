@@ -259,7 +259,7 @@ class RAGService:
         from sqlalchemy import func
 
         # 使用 jiebacfg 进行中文分词搜索
-        tsquery = func.to_tsquery('jiebacfg', question)
+        tsquery = func.plainto_tsquery('jiebacfg', question)
         ts_rank = func.ts_rank(Document.search_vector, tsquery).label("rank")
 
         stmt = select(Document, ts_rank).where(
