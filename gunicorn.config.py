@@ -2,15 +2,22 @@
 Gunicorn 配置文件
 
 使用方式：
-uv run gunicorn main:app -c gunicorn.config.py --env production
+uv run gunicorn main:app -c gunicorn.config.py
 """
+import os
 import multiprocessing
+
+# 强制设置生产环境
+os.environ["APP_ENV"] = "production"
+
+# HuggingFace 国内镜像
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 # 服务器配置
 bind = "0.0.0.0:8000"
 
 # 工作进程数（推荐 CPU 核心数 * 2 + 1）
-workers = multiprocessing.cpu_count() * 2 + 1
+workers = 2
 
 # Worker 类（异步，配合 FastAPI）
 worker_class = "uvicorn.workers.UvicornWorker"
