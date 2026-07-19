@@ -4,6 +4,7 @@ RAG 相关服务接口
 import time
 import json
 import asyncio
+import httpx
 
 from fastapi import Depends, Request
 from typing import List, Dict, Tuple
@@ -32,7 +33,6 @@ class RAGService:
         self.embedding_service = embedding_service
         self.messages_service = MessagesService(self.db)
         self.chat_service = ChatService(self.db)
-        self.rerank_model = request.app.state.rerank_model
         self.current_exchange_id = 0
         self.system_prompts = """
             你是知识库问答助手。
@@ -325,23 +325,52 @@ class RAGService:
     async def _rerank(self, question: str, results: List[Tuple], top_k: int = 5) -> List[Tuple]:
         """
         重排序
-        精排：使用Corss-Encoder 对召回结果重新打分
+        精排：使用 Cross-Encoder API 对召回结果重新打分（硅基流动）
         """
-        if not self.rerank_model or not results:
-            logger.warning("Rerank 模型未加载，跳过重排序")
+        if not results:
             return results[:top_k]
-        logger.info("开始重排序")
-        # 构造 (question, document) 对
-        pairs = [(question, doc.content) for doc, score in results]
-        # 用预加载模型预测
-        scores = self.rerank_model.predict(pairs)
-        # 按照分数降序排序
-        ranked_results = sorted(
-            zip(results, scores),
-            key=lambda x: x[1],
-            reverse=True
-        )
-        return [(doc, rerank_score) for (doc, _old_score), rerank_score in ranked_results[:top_k]]
+
+        if not settings.RERANK_API_KEY:
+            logger.warning("Rerank API Key 未配置，跳过重排序")
+            return results[:top_k]
+
+        logger.info("开始重排序（API 模式）")
+        try:
+            # 提取文档内容列表
+            documents = [doc.content for doc, score in results]
+
+            # 调用硅基流动 Rerank API
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{settings.RERANK_BASE_URL}/rerank",
+                    headers={
+                        "Authorization": f"Bearer {settings.RERANK_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": settings.RERANK_MODEL,
+                        "query": question,
+                        "documents": documents,
+                        "top_n": top_k
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+
+            # 解析返回结果，按 index 映射回原来的 Document 对象
+            rerank_results = []
+            for item in data.get("results", []):
+                idx = item["index"]
+                score = item["relevance_score"]
+                doc, _ = results[idx]
+                rerank_results.append((doc, score))
+
+            logger.info(f"重排序完成，返回 {len(rerank_results)} 条结果")
+            return rerank_results
+
+        except Exception as e:
+            logger.error(f"Rerank API 调用失败: {str(e)}，返回原始结果")
+            return results[:top_k]
 
     def _count_tokens(self, text: str) -> int:
         """

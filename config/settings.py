@@ -162,6 +162,11 @@ class Settings(BaseSettings):
     # 日志级别
     FLOWER_LOG_LEVEL: str = "INFO"
 
+    # ============ Rerank 配置（硅基流动 API）============
+    RERANK_API_KEY: str = ""
+    RERANK_BASE_URL: str = "https://api.siliconflow.cn/v1"
+    RERANK_MODEL: str = "BAAI/bge-reranker-v2-m3"
+
     # RAG配置
     SIMILARITY_THRESHOLD: float = 0.5  # 余弦相似度阈值
     DISTANCE_THRESHOLD: float = 0.5  # 余弦距离阈值

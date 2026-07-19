@@ -24,10 +24,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"调试模式：{settings.DEBUG}")
     # 初始化数据库连接
     await db_session.create_pool()
-    # 加载 rerank 模型
-    from sentence_transformers import CrossEncoder
-    app.state.rerank_model = CrossEncoder('BAAI/bge-reranker-base')
-    logger.info("Rerank 模型加载完成")
+    # Rerank 使用 API 调用（硅基流动），无需本地加载
+    logger.info("Rerank 使用 API 模式（硅基流动）")
     # 初始化服务
     yield
     # 关闭时执行
