@@ -380,6 +380,7 @@ class RAGService:
         chinese_chars = len(re.findall(r'[一-鿿]', text))
         english_words = len(re.findall(r'[a-zA-Z]+', text))
         return chinese_chars * 2 + int(english_words * 1.3)
+    
 
     async def _smart_truncate(self, chat_id: str, max_tokens: int) -> tuple[str, list]:
         """
