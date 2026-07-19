@@ -17,7 +17,7 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 bind = "0.0.0.0:8000"
 
 # 工作进程数（推荐 CPU 核心数 * 2 + 1）
-workers = 2
+workers = 1
 
 # Worker 类（异步，配合 FastAPI）
 worker_class = "uvicorn.workers.UvicornWorker"
